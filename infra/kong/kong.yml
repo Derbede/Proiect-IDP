@@ -1,0 +1,10 @@
+_format_version: "3.0"
+
+services:
+  - name: auth-service
+    url: http://auth-service:3001/auth
+    routes:
+      - name: auth-routes
+        paths:
+          - /api/auth
+        strip_path: true
