@@ -1,8 +1,8 @@
+version: "3.8"
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: idp-postgres
-    restart: unless-stopped
     networks:
       - data
       - app
@@ -10,8 +10,6 @@ services:
       POSTGRES_DB: task_manager
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,28 +17,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "database"
 
   adminer:
     image: adminer:4
-    container_name: idp-adminer
-    restart: unless-stopped
     networks:
       - data
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     ports:
       - "8080:8080"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "db-admin"
 
   auth-service:
     image: ${AUTH_SERVICE_IMAGE:-auth-service:local}
-    container_name: idp-auth-service
-    restart: unless-stopped
     networks:
       - app
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       PORT: 3001
       JWT_SECRET: super-secret-change-me
@@ -53,16 +61,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "auth-service"
 
   team-service:
     image: ${TEAM_SERVICE_IMAGE:-team-service:local}
-    container_name: idp-team-service
-    restart: unless-stopped
     networks:
       - app
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       PORT: 3002
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/task_manager
@@ -73,16 +86,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "team-service"
 
   task-service:
     image: ${TASK_SERVICE_IMAGE:-task-service:local}
-    container_name: idp-task-service
-    restart: unless-stopped
     networks:
       - app
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       PORT: 3003
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/task_manager
@@ -93,21 +111,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "task-service"
 
   kong:
     image: kong:3.7
-    container_name: idp-kong
-    restart: unless-stopped
     networks:
       - edge
       - app
     depends_on:
-      auth-service:
-        condition: service_healthy
-      team-service:
-        condition: service_healthy
-      task-service:
-        condition: service_healthy
+      - auth-service
+      - team-service
+      - task-service
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
@@ -117,15 +138,24 @@ services:
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
     volumes:
-      - ./kong/kong.yml:/usr/local/kong/declarative/kong.yml:ro
+      - type: bind
+        source: ./kong/kong.yml
+        target: /usr/local/kong/declarative/kong.yml
+        read_only: true
     ports:
       - "8000:8000"
       - "8001:8001"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "api-gateway"
 
   portainer:
     image: portainer/portainer-ce:2.20.3
-    container_name: idp-portainer
-    restart: unless-stopped
     networks:
       - edge
     ports:
@@ -133,26 +163,44 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "portainer"
 
   prometheus:
     image: prom/prometheus:v2.53.0
-    container_name: idp-prometheus
-    restart: unless-stopped
     networks:
       - monitor
       - app
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - type: bind
+        source: ./monitoring/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.enable-lifecycle
     ports:
       - "9090:9090"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "prometheus"
 
   grafana:
     image: grafana/grafana:11.0.0
-    container_name: idp-grafana
-    restart: unless-stopped
     networks:
       - monitor
       - edge
@@ -163,21 +211,39 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - type: bind
+        source: ./monitoring/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ./monitoring/grafana/dashboards
+        target: /etc/grafana/dashboards
+        read_only: true
       - grafana_data:/var/lib/grafana
     ports:
       - "3000:3000"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "grafana"
 
 networks:
   edge:
-    name: idp_edge
+    driver: overlay
+    attachable: true
   app:
-    name: idp_app
+    driver: overlay
+    attachable: true
   data:
-    name: idp_data
+    driver: overlay
+    attachable: true
   monitor:
-    name: idp_monitor
+    driver: overlay
+    attachable: true
 
 volumes:
   postgres_data:

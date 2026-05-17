@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -7,6 +7,6 @@ RUN npm install
 
 COPY src ./src
 
-EXPOSE 3003
+EXPOSE 3002
 
 CMD ["npm", "start"]
