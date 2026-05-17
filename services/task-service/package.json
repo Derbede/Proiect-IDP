@@ -1,7 +1,7 @@
 {
   "name": "task-service",
   "version": "1.0.0",
-  "description": "Task microservice for Task Manager",
+  "description": "Task persistence microservice",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

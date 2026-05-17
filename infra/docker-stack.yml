@@ -1,0 +1,251 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - data
+      - app
+    environment:
+      POSTGRES_DB: task_manager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d task_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "database"
+
+  adminer:
+    image: adminer:4
+    networks:
+      - data
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "db-admin"
+
+  auth-service:
+    image: ${AUTH_SERVICE_IMAGE:-auth-service:local}
+    networks:
+      - app
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3001
+      JWT_SECRET: super-secret-change-me
+      JWT_EXPIRES_IN: 1h
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/task_manager
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "auth-service"
+
+  team-service:
+    image: ${TEAM_SERVICE_IMAGE:-team-service:local}
+    networks:
+      - app
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3002
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/task_manager
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "team-service"
+
+  task-service:
+    image: ${TASK_SERVICE_IMAGE:-task-service:local}
+    networks:
+      - app
+    depends_on:
+      - postgres
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/task_manager
+    ports:
+      - "3003:3003"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "task-service"
+
+  kong:
+    image: kong:3.7
+    networks:
+      - edge
+      - app
+    depends_on:
+      - auth-service
+      - team-service
+      - task-service
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    volumes:
+      - type: bind
+        source: ./kong/kong.yml
+        target: /usr/local/kong/declarative/kong.yml
+        read_only: true
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "api-gateway"
+
+  portainer:
+    image: portainer/portainer-ce:2.20.3
+    networks:
+      - edge
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "portainer"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    networks:
+      - monitor
+      - app
+    volumes:
+      - type: bind
+        source: ./monitoring/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "prometheus"
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    networks:
+      - monitor
+      - edge
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - type: bind
+        source: ./monitoring/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ./monitoring/grafana/dashboards
+        target: /etc/grafana/dashboards
+        read_only: true
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        idp.deployment.environment: "swarm"
+        idp.deployment.version: "v1"
+        idp.deployment.component: "grafana"
+
+networks:
+  edge:
+    driver: overlay
+    attachable: true
+  app:
+    driver: overlay
+    attachable: true
+  data:
+    driver: overlay
+    attachable: true
+  monitor:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres_data:
+  portainer_data:
+  grafana_data:

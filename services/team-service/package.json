@@ -1,7 +1,7 @@
 {
   "name": "team-service",
   "version": "1.0.0",
-  "description": "Team microservice for Task Manager",
+  "description": "Team business logic microservice",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

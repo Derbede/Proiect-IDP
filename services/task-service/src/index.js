@@ -4,7 +4,7 @@ const taskRoutes = require("./routes/taskRoutes");
 const { initializeDatabase, pool } = require("./config/db");
 
 const app = express();
-const port = process.env.PORT || 3002;
+const port = process.env.PORT || 3003;
 
 app.use(express.json());
 
@@ -25,12 +25,7 @@ app.use((err, _req, res, _next) => {
 });
 
 const start = async () => {
-  if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is not set.");
-  }
-
   await initializeDatabase();
-
   app.listen(port, () => {
     console.log(`Task service listening on port ${port}`);
   });

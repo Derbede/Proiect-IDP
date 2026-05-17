@@ -1,5 +1,8 @@
 _format_version: "3.0"
 
+plugins:
+  - name: prometheus
+
 services:
   - name: auth-service
     url: http://auth-service:3001/auth
