@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build auth-service
+        run: docker build ./services/auth-service
+
+      - name: Build task-service
+        run: docker build ./services/task-service
+
+      - name: Build team-service
+        run: docker build ./services/team-service
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker compose -f infra/docker-compose.yml up -d --build
+        env:
+          COMPOSE_PROJECT_NAME: idp
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for auth-service..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3001/health; do sleep 2; done'
+          echo "Waiting for task-service..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3002/health; do sleep 2; done'
+          echo "Waiting for team-service..."
+          timeout 60 bash -c 'until curl -sf http://localhost:3003/health; do sleep 2; done'
+
+      - name: Test auth-service register
+        run: |
+          curl -sf -X POST http://localhost:8000/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@test.com","password":"123456"}'
+
+      - name: Test auth-service login
+        run: |
+          TOKEN=$(curl -sf -X POST http://localhost:8000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@test.com","password":"123456"}' | jq -r '.accessToken')
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Test task-service
+        run: |
+          curl -sf http://localhost:8000/api/tasks \
+            -H "Authorization: Bearer $TOKEN"
+
+      - name: Test team-service
+        run: |
+          curl -sf http://localhost:8000/api/teams \
+            -H "Authorization: Bearer $TOKEN"
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f infra/docker-compose.yml down

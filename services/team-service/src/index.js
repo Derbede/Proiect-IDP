@@ -24,19 +24,28 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Internal server error." });
 });
 
-const start = async () => {
+const start = async (retries = 10, delay = 3000) => {
   if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is not set.");
+    console.error("JWT_SECRET is not set.");
+    process.exit(1);
   }
 
-  await initializeDatabase();
-
-  app.listen(port, () => {
-    console.log(`Team service listening on port ${port}`);
-  });
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await initializeDatabase();
+      app.listen(port, () => {
+        console.log(`Team service listening on port ${port}`);
+      });
+      return;
+    } catch (error) {
+      console.error(`Attempt ${i}/${retries} failed:`, error.message);
+      if (i === retries) {
+        console.error("Failed to start team-service after all retries.");
+        process.exit(1);
+      }
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
 };
 
-start().catch((error) => {
-  console.error("Failed to start team-service:", error);
-  process.exit(1);
-});
+start();

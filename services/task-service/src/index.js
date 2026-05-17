@@ -24,14 +24,23 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Internal server error." });
 });
 
-const start = async () => {
-  await initializeDatabase();
-  app.listen(port, () => {
-    console.log(`Task service listening on port ${port}`);
-  });
+const start = async (retries = 10, delay = 3000) => {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await initializeDatabase();
+      app.listen(port, () => {
+        console.log(`Task service listening on port ${port}`);
+      });
+      return;
+    } catch (error) {
+      console.error(`Attempt ${i}/${retries} failed:`, error.message);
+      if (i === retries) {
+        console.error("Failed to start task-service after all retries.");
+        process.exit(1);
+      }
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
 };
 
-start().catch((error) => {
-  console.error("Failed to start task-service:", error);
-  process.exit(1);
-});
+start();
