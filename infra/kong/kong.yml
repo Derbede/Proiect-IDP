@@ -16,3 +16,11 @@ services:
         paths:
           - /api/tasks
         strip_path: true
+
+  - name: team-service
+    url: http://team-service:3003/teams
+    routes:
+      - name: team-routes
+        paths:
+          - /api/teams
+        strip_path: true
