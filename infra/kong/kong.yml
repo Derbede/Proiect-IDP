@@ -8,3 +8,11 @@ services:
         paths:
           - /api/auth
         strip_path: true
+
+  - name: task-service
+    url: http://task-service:3002/tasks
+    routes:
+      - name: task-routes
+        paths:
+          - /api/tasks
+        strip_path: true
